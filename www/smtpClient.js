@@ -1,12 +1,11 @@
 /*global cordova, module*/
 
 var smtpClient = {
-    sendMail: function (mailSettings, successCallback, errorCallback) {
-        cordova.exec(successCallback, errorCallback, "SMTPClient", "cordovaSendMail", [ JSON.stringify(mailSettings) ]);
+    sendMail: function (mailSettings, successCB, errorCB) {
+        cordova.exec(successCB, function (err) { errorCB(err); }, "SMTPClient", "cordovaSendMail", [JSON.stringify(mailSettings)]);
     },
-    isLoaded: function() {
-        console.info('SMTP Client is loaded !');
-        return true;
+    testConnection: function (smtpSettings, successCB, errorCB) {
+        cordova.exec(successCB, function (err) { errorCB(err); }, "SMTPClient", "cordovaTestConnection", [JSON.stringify(smtpSettings)]);
     }
 };
 

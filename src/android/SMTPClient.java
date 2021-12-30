@@ -1,110 +1,172 @@
 package com.cordova.smtp.client;
 
-import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.Message;
-import android.os.StrictMode;
-//import android.widget.Toast;
-
+import android.util.Log;
+import javax.mail.AuthenticationFailedException;
+import javax.mail.MessagingException;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaPlugin;
-import org.json.JSONObject;
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 public class SMTPClient extends CordovaPlugin {
     public final String ACTION_SEND_EMAIL = "cordovaSendMail";
-    private final SMTPClient context = this;
+    public final String ACTION_TEST_CONNECTION = "cordovaTestConnection";
+    
+    private static final String TAG = "SMTPClient";
+    private CallbackContext callback;
+    private String action;
+    private String rawArgs;
+
+    private interface SMTPFunction {
+        void run(JSONArray args, CallbackContext callback) throws Exception;
+    }
 
     @Override
-    public boolean execute(String action, final JSONArray arg1, final CallbackContext callbackContext) {
-//PluginResult result = new PluginResult(Status.INVALID_ACTION);
-        if (action.equals(ACTION_SEND_EMAIL)) {
-            if (android.os.Build.VERSION.SDK_INT > 9) {
-                StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
-                        .permitAll().build();
-                StrictMode.setThreadPolicy(policy);
-            }
-            final Handler mHandler = new Handler(Looper.getMainLooper()) {
-                @Override
-                public void handleMessage(Message message) {
-                    // This is where you do your work in the UI thread.
-                    // Your worker tells you in the message what to do.
+    public boolean execute(String action, String rawArgs, CallbackContext callback) {
+        this.callback = callback;
+        this.action = action;
+        this.rawArgs = rawArgs;
 
-                    /*if (message.what == 0) {
-                        Toast.makeText(cordova.getActivity(),
-                                "Email was sent successfully.",
-                                Toast.LENGTH_LONG).show();
-                    } else if (message.what == 1){
-                        Toast.makeText(cordova.getActivity(),
-                                "Email was not sent.", Toast.LENGTH_LONG)
-                                .show();
-                    }
-                    else{
-                        Toast.makeText(cordova.getActivity(),
-                                "There was a problem sending the email. " + message.obj,
-                                Toast.LENGTH_LONG).show();
-                    }*/
-                }
-            };
-            this.cordova.getThreadPool().execute (new Runnable() {
-                public void run() {
-                    try {
-//String message = arg1.getString(0);
-                        JSONObject json = new JSONObject(arg1.getString(0));
-
-                        String state = Environment.getExternalStorageState();
-                        context.sendEmailViaGmail(json);
-                        Message message = mHandler.obtainMessage(0, null);
-                        message.sendToTarget();
-                        callbackContext.success();
-//                        return true;
-                    } catch (JSONException ex) {
-                        ex.printStackTrace();
-                        Message message = mHandler.obtainMessage(2, ex);
-                        message.sendToTarget();
-                        callbackContext.error(ex.getMessage());
-//                        return false;
-                    } catch (Exception e) {
-// TODO Auto-generated catch block
-                        e.printStackTrace();
-                        Message message = mHandler.obtainMessage(2, e);
-                        message.sendToTarget();
-                        callbackContext.error(e.getMessage());
-                    }
-                }
-            });
-        };
-        return true;
+        return executeInternal(action, rawArgs, callback);
     }
 
-    private void sendEmailViaGmail(JSONObject json) throws Exception {
+    private boolean executeInternal(String action, String rawArgs, CallbackContext callback) {
+        Log.i(TAG, "Running executeInternal(), action: " + action);
 
-        Mail m = new Mail(json.getString("smtpUserName"), json.getString("smtpPassword"));
-        String[] toArr = json.getString("emailTo").split(",");
-        String emailCC = json.optString("emailCC");
-        String[] ccArr = (emailCC.isEmpty()) ? null : emailCC.split(",");
-        m.set_to(toArr);
-        m.set_cc(ccArr);
-        m.set_host(json.getString("smtp"));
-        m.set_from(json.getString("emailFrom"));
-        m.set_body(json.getString("textBody"));
-        m.set_subject(json.getString("subject"));
-
-        JSONArray attachments = json.getJSONArray("attachments");
-        if(attachments != null){
-            for(int i=0; i < attachments.length(); i++){
-                String fileFullName = attachments.getString(i);
-                if(fileFullName.contains(":")){
-                    fileFullName = fileFullName.split(":")[1];
+        if (ACTION_SEND_EMAIL.equals(action)) {
+            threadHelper(new SMTPFunction() {
+                @Override
+                public void run(JSONArray args, CallbackContext callback) throws Exception {
+                    sendMail(args, callback);
                 }
-                m.addAttachment(fileFullName);
-            }
+            }, rawArgs, callback);
+            return true;
         }
 
-        boolean sendFlag = m.send();
+        if (ACTION_TEST_CONNECTION.equals(action)) {
+            threadHelper(new SMTPFunction() {
+                @Override
+                public void run(JSONArray args, CallbackContext callback) throws Exception {
+                    testConnection(args, callback);
+                }
+            }, rawArgs, callback);
+            return true;
+        }
 
+        return false;
     }
 
+    /*
+     * Helper to execute functions async and handle the result codes.
+     */
+    private void threadHelper(final SMTPFunction f, final String rawArgs, final CallbackContext callbackContext) {
+        cordova.getThreadPool().execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    JSONArray args = new JSONArray(rawArgs);
+                    f.run(args, callbackContext);
+                } catch (Exception e) {
+                    logError(callbackContext, "Got unknown error in SMTPClient plugin", e);
+                }
+            }
+        });
+    }
+
+    /**
+     * Helper function to log to Logcat and log back to plugin result.
+     */
+    private void logError(final CallbackContext callbackContext, final String msg, final Exception e) {
+        Log.e(TAG, msg, e);
+        callbackContext.error(msg + ": " + e.getMessage());
+    }
+
+
+    /**
+     * Sends the email based on the arguments passed as a parameter.
+     */
+    private void sendMail(JSONArray args, CallbackContext callback) {
+        try {
+            JSONObject smtpSettings = new JSONObject(args.getString(0));
+            Mail mail = this.getMailObject(smtpSettings, false);
+            mail.send();
+            callback.success("Email sent");
+        } catch (Exception e) {
+            String errorMsg = e.getMessage();
+            if (errorMsg == null) {
+                errorMsg = "An error occurred while trying to send the email";
+            }
+            Throwable cause = e.getCause();
+            if (cause != null && cause.getMessage() != null) {
+                errorMsg = errorMsg + ": " + e.getCause().getMessage();
+            }
+            Log.e(TAG, errorMsg, e);
+            callback.error(errorMsg);
+        }
+    }
+
+    /**
+     * Allows to test an SMTP connection.
+     */
+    private void testConnection(JSONArray args, CallbackContext callback) {
+        try {
+            JSONObject smtpSettings = new JSONObject(args.getString(0));
+            Mail mail = this.getMailObject(smtpSettings, true);
+            mail.testConnection();
+            callback.success("Successful connection");
+        } catch (AuthenticationFailedException e) {
+            Log.e(TAG, e.getMessage(), e);
+            callback.error("AuthenticationFailedException");
+        } catch (MessagingException e) {
+            Log.e(TAG, e.getMessage(), e);
+            callback.error("MessagingException");
+        } catch (Exception e) {
+            Log.e(TAG, e.getMessage(), e);
+            callback.error("An error occurred while trying to test the connection");
+        }
+    }
+
+    /**
+     * Creates an object of type Mail and assigns its attributes based on the smtpSettings's values.
+     */
+    private Mail getMailObject(JSONObject smtpSettings, boolean testingConnection) throws JSONException {
+        String user = smtpSettings.getString("user");
+        String password = smtpSettings.getString("password");
+        String host = smtpSettings.getString("host");
+        int port = smtpSettings.getInt("port");
+        boolean auth = smtpSettings.getBoolean("auth");
+        int encryption = smtpSettings.getInt("encryption");
+
+        Mail mail = new Mail(user, password);
+        mail.setHost(host);
+        mail.setPort(port);
+        mail.setAuth(auth);
+        mail.setEncryption(encryption);
+        
+        if (!testingConnection) {
+            String fromEmail = smtpSettings.getString("fromEmail");
+            JSONArray toEmailsJSONArray = smtpSettings.getJSONArray("toEmails");
+            String[] toEmails = new String[toEmailsJSONArray.length()];
+            for (int i = 0; i < toEmailsJSONArray.length(); i++) {
+                toEmails[i] = toEmailsJSONArray.getString(i);
+            }
+            String subject = smtpSettings.getString("subject");
+            String body = smtpSettings.getString("body");
+            JSONArray attachmentsJSONArray = smtpSettings.getJSONArray("attachments");
+            Attachment[] attachments = new Attachment[attachmentsJSONArray.length()];
+            for (int i = 0; i < attachmentsJSONArray.length(); i++) {
+                JSONObject attachmentJSONObject = attachmentsJSONArray.getJSONObject(i);
+                Attachment attachment = new Attachment(attachmentJSONObject.getString("path"), attachmentJSONObject.getString("name"));
+                attachments[i] = attachment;
+            }
+            mail.setFromEmail(fromEmail);
+            mail.setToEmails(toEmails);
+            mail.setSubject(subject);
+            mail.setBody(body);
+            mail.setAttachments(attachments);
+        }
+
+        return mail;
+    }
 }
