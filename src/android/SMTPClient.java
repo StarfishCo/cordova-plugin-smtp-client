@@ -92,6 +92,12 @@ public class SMTPClient extends CordovaPlugin {
             Mail mail = this.getMailObject(smtpSettings, false);
             mail.send();
             callback.success("Email sent");
+        } catch (AuthenticationFailedException afe) {
+            String errorMsg = "Authentication failed, please verify your username and password" + 
+                " and make sure you don't have 2FA enabled. Also check that your account security" + 
+                " settings are not blocking this login.";
+            Log.e(TAG, errorMsg, afe);
+            callback.error(errorMsg);
         } catch (Exception e) {
             String errorMsg = e.getMessage();
             if (errorMsg == null) {
