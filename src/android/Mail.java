@@ -16,7 +16,15 @@ import javax.mail.Multipart;
 import javax.mail.PasswordAuthentication;
 import javax.mail.Session;
 import javax.mail.Transport;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.Date;
 import java.util.Properties;
 
@@ -150,7 +158,7 @@ public class Mail {
 
     // Methods
 
-    public void send() throws MessagingException, AddressException {
+    public void send() throws MessagingException, AddressException, NoSuchAlgorithmException, KeyManagementException {
         MimeMessage msg = new MimeMessage(this.getSession());
         // Set message headers
         msg.addHeader("Content-type", "text/HTML; charset=UTF-8");
@@ -185,7 +193,7 @@ public class Mail {
         Transport.send(msg);  
     }
 
-    public void testConnection() throws MessagingException, NoSuchProviderException  {
+    public void testConnection() throws MessagingException, NoSuchProviderException, NoSuchAlgorithmException, KeyManagementException  {
         Session session = this.getSession();
         Transport transport = session.getTransport("smtp");
         if (this.auth) {
@@ -196,17 +204,36 @@ public class Mail {
         transport.close();
     }
 
-    private Session getSession() {
+    private Session getSession() throws NoSuchAlgorithmException, KeyManagementException {
         Properties props = new Properties();
         props.put("mail.smtp.host", this.host);
         props.put("mail.smtp.port", this.port);
-        if (this.encryption == 1) {
-            // SSL Authentication            
-            props.put("mail.smtp.socketFactory.port", this.port); // SSL Port
-            props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory"); // SSL factory class
-        } else if (this.encryption == 2) {
-            // TLS Authentication
-            props.put("mail.smtp.starttls.enable", "true"); // Enable StartTLS
+        if (this.encryption > 0) {
+            // StartTLS is a protocol command used to inform the email server that the email client wants to 
+            // upgrade from an insecure connection to a secure one using TLS or SSL.
+            props.put("mail.smtp.starttls.enable", "true");
+            props.put("mail.smtp.socketFactory.port", this.port);
+            if (this.encryption == 1) {
+                props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory"); // SSL factory class
+                props.put("mail.smtp.ssl.protocols", "SSLv3");
+            } else if (this.encryption == 2) {
+                TrustManager[] trustManager = new TrustManager[]{new X509TrustManager() {
+                    public X509Certificate[] getAcceptedIssuers() {
+                        return null;
+                    }
+        
+                    public void checkClientTrusted(X509Certificate[] certs, String authType) {
+                    }
+        
+                    public void checkServerTrusted(X509Certificate[] certs, String authType) {
+                    }
+                }};
+                SSLContext sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(null, trustManager, new SecureRandom());
+                SSLSocketFactory tlsSocketFactory = new TLSSocketFactory(sslContext.getSocketFactory());
+                props.put("mail.smtp.socketFactory.class", tlsSocketFactory); // TLS factory class
+                props.put("mail.smtp.ssl.protocols", "TLSv1.2");
+            }
         }
         if (this.auth) {
             props.put("mail.smtp.auth", "true"); // Enabling SMTP Authentication
