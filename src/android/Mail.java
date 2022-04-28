@@ -215,7 +215,6 @@ public class Mail {
             props.put("mail.smtp.socketFactory.port", this.port);
             if (this.encryption == 1) {
                 props.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory"); // SSL factory class
-                props.put("mail.smtp.ssl.protocols", "SSLv3");
             } else if (this.encryption == 2) {
                 TrustManager[] trustManager = new TrustManager[]{new X509TrustManager() {
                     public X509Certificate[] getAcceptedIssuers() {
