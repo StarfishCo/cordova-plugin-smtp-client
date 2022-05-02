@@ -27,6 +27,7 @@
       <source-file src="src/android/SMTPClient.java" target-dir="src/com/cordova/smtp/client/" />
       <source-file src="src/android/Mail.java" target-dir="src/com/cordova/smtp/client/" />
       <source-file src="src/android/Attachment.java" target-dir="src/com/cordova/smtp/client/" />
+      <source-file src="src/android/TLSSocketFactory.java" target-dir="src/com/cordova/smtp/client/" />
       <source-file src="src/android/activation.jar" target-dir="libs" />
       <source-file src="src/android/additionnal.jar" target-dir="libs" />
       <source-file src="src/android/mail.jar" target-dir="libs" />
